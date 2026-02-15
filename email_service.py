@@ -1,9 +1,9 @@
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
+from email.mime.image import MIMEImage
 import os
+import base64
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,89 +19,68 @@ def send_ticket_email(
     qr_code_base64,
     ticket_bg_image=None
 ):
-    """
-    Send ticket email with PDF attachment
-    """
+    """Send ticket email with embedded QR code"""
     
     email_host = os.getenv('EMAIL_HOST')
     email_port = int(os.getenv('EMAIL_PORT', 587))
     email_user = os.getenv('EMAIL_USER')
     email_password = os.getenv('EMAIL_PASSWORD')
-    email_from = os.getenv('EMAIL_FROM', 'SynthaxLab Ticketing <noreply@synthaxlab.com>')
+    email_from = os.getenv('EMAIL_FROM', 'SynthaxLab <noreply@synthaxlab.com>')
     
-    # Check if email is configured
     if not all([email_host, email_user, email_password]):
-        print("⚠️ Email not configured - skipping")
+        print("⚠️ Email not configured")
         return False
     
     try:
-        # Generate PDF ticket
-        from pdf_generator import generate_ticket_pdf
+        # Decode QR code
+        if 'base64,' in qr_code_base64:
+            qr_data = qr_code_base64.split('base64,')[1]
+        else:
+            qr_data = qr_code_base64
         
-        pdf_buffer = generate_ticket_pdf(
-            ticket_number=ticket_number,
-            recipient_name=recipient_name,
-            event_name=event_name,
-            event_date=event_date,
-            event_location=event_location,
-            ticket_type=ticket_type,
-            qr_code_base64=qr_code_base64,
-            ticket_bg_image=ticket_bg_image
-        )
+        qr_bytes = base64.b64decode(qr_data)
         
         # Create email
-        msg = MIMEMultipart()
+        msg = MIMEMultipart('related')
         msg['From'] = email_from
         msg['To'] = recipient_email
         msg['Subject'] = f'🎫 Your Ticket for {event_name}'
         
-        # Email body
         html_body = f"""
-        <!DOCTYPE html>
         <html>
-        <head>
-            <style>
-                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
-                .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
-                .ticket-info {{ background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #667eea; }}
-                .ticket-info p {{ margin: 10px 0; }}
-                .footer {{ text-align: center; margin-top: 30px; color: #888; font-size: 12px; }}
-                .btn {{ display: inline-block; padding: 12px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>🎫 Your Ticket is Ready!</h1>
-                </div>
-                <div class="content">
-                    <p>Hi {recipient_name},</p>
+        <body style="font-family: Arial; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+                <h1>🎫 Your Ticket is Ready!</h1>
+            </div>
+            <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px;">
+                <p>Hi <strong>{recipient_name}</strong>,</p>
+                
+                <p>Your ticket for <strong>{event_name}</strong> has been issued!</p>
+                
+                <div style="background: white; padding: 30px; border-radius: 8px; margin: 20px 0; text-align: center; border: 2px solid #667eea;">
+                    <h2 style="color: #667eea; margin-top: 0;">{event_name}</h2>
                     
-                    <p>Your ticket for <strong>{event_name}</strong> has been issued!</p>
+                    <img src="cid:qrcode" alt="QR Code" style="max-width: 300px; margin: 20px 0;">
                     
-                    <div class="ticket-info">
-                        <p><strong>🎟️ Ticket Number:</strong> {ticket_number}</p>
-                        <p><strong>🎫 Ticket Type:</strong> {ticket_type}</p>
-                        <p><strong>📅 Event Date:</strong> {event_date}</p>
+                    <div style="text-align: left; margin: 20px 0;">
+                        <p><strong>🎟️ Ticket:</strong> {ticket_number}</p>
+                        <p><strong>🎫 Type:</strong> {ticket_type}</p>
+                        <p><strong>📅 Date:</strong> {event_date}</p>
                         <p><strong>📍 Location:</strong> {event_location}</p>
                     </div>
-                    
-                    <p><strong>📎 Your ticket is attached as a PDF.</strong></p>
-                    
-                    <p>Please download and save the PDF ticket. You can either:</p>
-                    <ul>
-                        <li>Print the ticket and bring it to the event</li>
-                        <li>Show the PDF on your phone at the entrance</li>
-                    </ul>
-                    
-                    <p style="color: #d32f2f; font-weight: bold;">⚠️ Important: Do not share your ticket with anyone. Each ticket can only be used once.</p>
-                    
-                    <div class="footer">
-                        <p>This is an automated email from SynthaxLab Ticketing System.</p>
-                        <p>If you have any questions, please contact the event organizer.</p>
-                    </div>
+                </div>
+                
+                <div style="background: #e3f2fd; padding: 15px; border-radius: 5px; border-left: 4px solid #2196f3;">
+                    <p style="margin: 0;"><strong>📱 How to use:</strong></p>
+                    <ol style="margin: 10px 0;">
+                        <li>Screenshot this email</li>
+                        <li>Show QR code at entrance</li>
+                        <li>Staff will scan for entry</li>
+                    </ol>
+                </div>
+                
+                <div style="background: #ffebee; padding: 15px; border-radius: 5px; border-left: 4px solid #f44336; margin-top: 20px;">
+                    <p style="margin: 0; color: #d32f2f;"><strong>⚠️ Important:</strong> Each ticket can only be used once. Do not share your QR code.</p>
                 </div>
             </div>
         </body>
@@ -110,29 +89,26 @@ def send_ticket_email(
         
         msg.attach(MIMEText(html_body, 'html'))
         
-        # Attach PDF
-        pdf_attachment = MIMEBase('application', 'pdf')
-        pdf_attachment.set_payload(pdf_buffer.read())
-        encoders.encode_base64(pdf_attachment)
-        pdf_attachment.add_header(
-            'Content-Disposition',
-            f'attachment; filename="{ticket_number}.pdf"'
-        )
-        msg.attach(pdf_attachment)
+        # Attach QR image
+        qr_image = MIMEImage(qr_bytes)
+        qr_image.add_header('Content-ID', '<qrcode>')
+        msg.attach(qr_image)
         
-        # Send email
-        print(f"📧 Connecting to {email_host}:{email_port}...")
-        
-        with smtplib.SMTP(email_host, email_port) as server:
-            server.starttls()
-            server.login(email_user, email_password)
-            server.send_message(msg)
+        # Send
+        if email_port == 465:
+            from smtplib import SMTP_SSL
+            with SMTP_SSL(email_host, email_port) as server:
+                server.login(email_user, email_password)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(email_host, email_port) as server:
+                server.starttls()
+                server.login(email_user, email_password)
+                server.send_message(msg)
         
         print(f"✅ Email sent to {recipient_email}")
         return True
         
     except Exception as e:
-        print(f"❌ Email send failed: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Email failed: {e}")
         return False
