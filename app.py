@@ -80,6 +80,52 @@ def not_found(error):
 def internal_error(error):
     return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
+@app.route('/admin/setup-database', methods=['POST'])
+def setup_database():
+    """One-time setup route - DELETE AFTER USE!"""
+    try:
+        # Run migrations
+        from database.migrate import create_tables
+        create_tables()
+        
+        # Seed database
+        from database.db import execute_query
+        import bcrypt
+        
+        # Create admin user
+        admin_password = bcrypt.hashpw('password123'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        scanner_password = bcrypt.hashpw('password123'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        
+        execute_query('''
+            INSERT INTO users (email, password_hash, full_name, role, created_at)
+            VALUES (%s, %s, %s, %s, NOW())
+            ON CONFLICT (email) DO UPDATE SET 
+                password_hash = EXCLUDED.password_hash,
+                role = EXCLUDED.role
+        ''', ('admin@ticket9ja.com', admin_password, 'Admin User', 'admin'), fetch=False)
+        
+        execute_query('''
+            INSERT INTO users (email, password_hash, full_name, role, created_at)
+            VALUES (%s, %s, %s, %s, NOW())
+            ON CONFLICT (email) DO UPDATE SET 
+                password_hash = EXCLUDED.password_hash,
+                role = EXCLUDED.role
+        ''', ('scanner@ticket9ja.com', scanner_password, 'Scanner User', 'scanner'), fetch=False)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Database setup completed!',
+            'users': ['admin@ticket9ja.com', 'scanner@ticket9ja.com']
+        }), 200
+        
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
+
 if __name__ == '__main__':
     port = 5000
     
