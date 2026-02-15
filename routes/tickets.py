@@ -16,6 +16,8 @@ def admin_required(fn):
     @jwt_required()
     def wrapper(*args, **kwargs):
         user_id = get_jwt_identity()
+        user_id = int(user_id)
+        
         user = execute_query('SELECT role FROM users WHERE id = %s', (user_id,))
         
         if not user or user[0]['role'] != 'admin':
@@ -23,20 +25,20 @@ def admin_required(fn):
         
         return fn(*args, **kwargs)
     return wrapper
-        
+
 @tickets_bp.route('/create', methods=['POST'])
 @admin_required
 def create_ticket():
     """Create ticket and send email"""
     print("\n" + "="*60)
-    print("🎫 TICKET CREATION REQUEST")
+    print("TICKET CREATION REQUEST")
     print("="*60)
     
     user_id = get_jwt_identity()
     user_id = int(user_id)
     
     data = request.get_json()
-    print(f"📦 Request data: {data}")
+    print(f"Request data: {data}")
     
     event_id = data.get('eventId')
     ticket_type_id = data.get('ticketTypeId')
@@ -49,31 +51,25 @@ def create_ticket():
     if not all([event_id, recipient_name, recipient_email]):
         return jsonify({'success': False, 'error': 'Missing required fields'}), 400
     
-    # Import here
-    import qrcode
-    import io
-    import base64
-    import uuid
-    
     conn = get_db_connection()
     conn.autocommit = False
     
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         
-        print(f"📋 Getting event {event_id}...")
+        print(f"Getting event {event_id}...")
         cur.execute('SELECT * FROM events WHERE id = %s', (event_id,))
         event = cur.fetchone()
         
         if not event:
-            print("❌ Event not found")
+            print("Event not found")
             return jsonify({'success': False, 'error': 'Event not found'}), 404
         
-        print(f"✅ Event found: {event['name']}")
+        print(f"Event found: {event['name']}")
         
         # Handle ticket type
         if custom_ticket_type:
-            print(f"📝 Creating custom ticket type: {custom_ticket_type['name']}")
+            print(f"Creating custom ticket type: {custom_ticket_type['name']}")
             cur.execute('''
                 INSERT INTO ticket_types (event_id, name, price, quantity, is_custom, description)
                 VALUES (%s, %s, 0, 1, true, %s)
@@ -83,19 +79,19 @@ def create_ticket():
             ticket_type = cur.fetchone()
             ticket_type_id = ticket_type['id']
             ticket_type_name = ticket_type['name']
-            print(f"✅ Custom ticket type created: {ticket_type_name} (ID: {ticket_type_id})")
+            print(f"Custom ticket type created: {ticket_type_name} (ID: {ticket_type_id})")
             
         else:
-            print(f"📋 Getting ticket type {ticket_type_id}...")
+            print(f"Getting ticket type {ticket_type_id}...")
             cur.execute('SELECT * FROM ticket_types WHERE id = %s', (ticket_type_id,))
             ticket_type = cur.fetchone()
             
             if not ticket_type:
-                print("❌ Ticket type not found")
+                print("Ticket type not found")
                 return jsonify({'success': False, 'error': 'Ticket type not found'}), 404
             
             ticket_type_name = ticket_type['name']
-            print(f"✅ Ticket type found: {ticket_type_name}")
+            print(f"Ticket type found: {ticket_type_name}")
             
             # Update quantity
             cur.execute('''
@@ -103,25 +99,25 @@ def create_ticket():
                 SET quantity_issued = quantity_issued + 1 
                 WHERE id = %s
             ''', (ticket_type_id,))
-            print("✅ Quantity updated")
+            print("Quantity updated")
         
         # Generate ticket number and QR code
         ticket_number = f"TKT-{uuid.uuid4().hex[:8].upper()}"
         qr_data = f"{ticket_number}|{event_id}|{recipient_email}"
         
-        print(f"🎟️ Generated ticket number: {ticket_number}")
+        print(f"Generated ticket number: {ticket_number}")
         
-        # Generate QR code - FIXED VERSION
+        # Generate QR code
         qr_img = qrcode.make(qr_data)
         buffer = io.BytesIO()
         qr_img.save(buffer)
         buffer.seek(0)
         qr_code_base64 = base64.b64encode(buffer.getvalue()).decode()
         
-        print("✅ QR code generated")
+        print("QR code generated")
         
         # Insert ticket
-        print("💾 Inserting ticket into database...")
+        print("Inserting ticket into database...")
         cur.execute('''
             INSERT INTO tickets (
                 event_id, ticket_type_id, qr_code, ticket_number,
@@ -139,82 +135,122 @@ def create_ticket():
         ticket = cur.fetchone()
         ticket_id = ticket['id']
         
-        print(f"✅ Ticket inserted with ID: {ticket_id}")
+        print(f"Ticket inserted with ID: {ticket_id}")
         
         # Commit
-        print("💾 Committing transaction...")
+        print("Committing transaction...")
         conn.commit()
-        print("✅ Transaction committed!")
+        print("Transaction committed!")
         
         # Verify
-        print("🔍 Verifying ticket in database...")
+        print("Verifying ticket in database...")
         cur.execute('SELECT id, ticket_number FROM tickets WHERE id = %s', (ticket_id,))
         verify = cur.fetchone()
         
         if verify:
-            print(f"✅ VERIFIED: Ticket {verify['ticket_number']} exists in database!")
+            print(f"VERIFIED: Ticket {verify['ticket_number']} exists in database!")
         else:
-            print(f"❌ WARNING: Ticket {ticket_id} NOT found after commit!")
+            print(f"WARNING: Ticket {ticket_id} NOT found after commit!")
         
-          cur.close()
-
-# Prepare response
-ticket_data = {
-    'id': ticket_id,
-    'ticketNumber': ticket_number,
-    'recipientName': recipient_name,
-    'recipientEmail': recipient_email,
-    'ticketType': ticket_type_name,
-    'eventName': event['name'],
-    'createdAt': ticket['created_at'].isoformat()
-}
-
-print("="*60)
-print("✅ TICKET CREATED SUCCESSFULLY")
-print("="*60 + "\n")
-
-# NOW SEND EMAIL
-try:
-    print("📧 Sending ticket email...")
-    
-    from email_service import send_ticket_email
-    
-    email_sent = send_ticket_email(
-        recipient_email=recipient_email,
-        recipient_name=recipient_name,
-        event_name=event['name'],
-        event_date=event['event_date'].strftime('%B %d, %Y at %I:%M %p'),
-        event_location=event['location'],
-        ticket_number=ticket_number,
-        ticket_type=ticket_type_name,
-        qr_code_base64=qr_code_base64,
-        ticket_bg_image=ticket_bg_image
-    )
-    
-    if email_sent:
-        print("✅ Email sent successfully!")
-        # Update email_sent flag
-        execute_query(
-            'UPDATE tickets SET email_sent = true WHERE id = %s',
-            (ticket_id,),
-            fetch=False
-        )
-    else:
-        print("⚠️ Email failed to send")
+        cur.close()
         
-except Exception as email_error:
-    print(f"⚠️ Email error (ticket still created): {email_error}")
-    import traceback
-    traceback.print_exc()
-
-return jsonify({
-    'success': True,
-    'message': 'Ticket created successfully',
-    'data': {'ticket': ticket_data}
-}), 201
+        # Prepare response
+        ticket_data = {
+            'id': ticket_id,
+            'ticketNumber': ticket_number,
+            'recipientName': recipient_name,
+            'recipientEmail': recipient_email,
+            'ticketType': ticket_type_name,
+            'eventName': event['name'],
+            'createdAt': ticket['created_at'].isoformat()
+        }
+        
+        print("="*60)
+        print("TICKET CREATED SUCCESSFULLY")
+        print("="*60 + "\n")
+        
+        # NOW SEND EMAIL
+        try:
+            print("Sending ticket email...")
+            
+            email_sent = send_ticket_email(
+                recipient_email=recipient_email,
+                recipient_name=recipient_name,
+                event_name=event['name'],
+                event_date=event['event_date'].strftime('%B %d, %Y at %I:%M %p'),
+                event_location=event['location'],
+                ticket_number=ticket_number,
+                ticket_type=ticket_type_name,
+                qr_code_base64=qr_code_base64,
+                ticket_bg_image=ticket_bg_image
+            )
+            
+            if email_sent:
+                print("Email sent successfully!")
+                # Update email_sent flag
+                execute_query(
+                    'UPDATE tickets SET email_sent = true WHERE id = %s',
+                    (ticket_id,),
+                    fetch=False
+                )
+            else:
+                print("Email failed to send")
+                
+        except Exception as email_error:
+            print(f"Email error (ticket still created): {email_error}")
+            import traceback
+            traceback.print_exc()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Ticket created successfully',
+            'data': {'ticket': ticket_data}
+        }), 201
+        
+    except Exception as e:
+        print("\n" + "!"*60)
+        print("ERROR OCCURRED")
+        print("!"*60)
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        print("!"*60 + "\n")
+        
+        conn.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+        
     finally:
         release_db_connection(conn)
+
+@tickets_bp.route('/event/<int:event_id>', methods=['GET'])
+@jwt_required()
+def get_event_tickets(event_id):
+    """Get all tickets for an event"""
+    try:
+        tickets = execute_query('''
+            SELECT t.*, 
+                   tt.name as ticket_type_name,
+                   c.check_in_time,
+                   u.full_name as scanner_name
+            FROM tickets t
+            JOIN ticket_types tt ON t.ticket_type_id = tt.id
+            LEFT JOIN check_ins c ON t.id = c.ticket_id
+            LEFT JOIN users u ON c.scanner_id = u.id
+            WHERE t.event_id = %s
+            ORDER BY t.created_at DESC
+        ''', (event_id,))
         
+        return jsonify({
+            'success': True,
+            'data': {
+                'tickets': tickets or [],
+                'total': len(tickets) if tickets else 0
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @tickets_bp.route('/<int:ticket_id>', methods=['PUT'])
 @admin_required
 def update_ticket(ticket_id):
@@ -246,57 +282,50 @@ def update_ticket(ticket_id):
     values.append(ticket_id)
     query = f"UPDATE tickets SET {', '.join(fields)} WHERE id = %s RETURNING *"
     
-    updated = execute_query(query, tuple(values))
-    
-    return jsonify({
-        'success': True,
-        'message': 'Ticket updated successfully',
-        'data': {'ticket': updated[0] if updated else None}
-    }), 200
+    try:
+        updated = execute_query(query, tuple(values))
+        
+        return jsonify({
+            'success': True,
+            'message': 'Ticket updated successfully',
+            'data': {'ticket': updated[0] if updated else None}
+        }), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @tickets_bp.route('/<int:ticket_id>', methods=['DELETE'])
 @admin_required
 def cancel_ticket(ticket_id):
-    """Delete ticket completely (even if used)"""
+    """Delete ticket completely"""
     conn = get_db_connection()
     conn.autocommit = False
     
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         
-        print(f"🗑️ Deleting ticket {ticket_id}...")
+        print(f"Deleting ticket {ticket_id}...")
         
-        # Get ticket details first
         cur.execute('SELECT ticket_number, status FROM tickets WHERE id = %s', (ticket_id,))
         ticket = cur.fetchone()
         
         if not ticket:
             return jsonify({'success': False, 'error': 'Ticket not found'}), 404
         
-        # Delete check-ins first (if any)
+        # Delete check-ins first
         cur.execute('DELETE FROM check_ins WHERE ticket_id = %s', (ticket_id,))
         deleted_checkins = cur.rowcount
         
         if deleted_checkins > 0:
-            print(f"  ✓ Deleted {deleted_checkins} check-in record(s)")
+            print(f"Deleted {deleted_checkins} check-in record(s)")
         
         # Delete the ticket
         cur.execute('DELETE FROM tickets WHERE id = %s', (ticket_id,))
-        print(f"  ✓ Deleted ticket: {ticket['ticket_number']}")
+        print(f"Deleted ticket: {ticket['ticket_number']}")
         
-        # Update ticket type quantity if not custom
-        cur.execute('''
-            UPDATE ticket_types 
-            SET quantity_issued = GREATEST(0, quantity_issued - 1)
-            WHERE id = (SELECT ticket_type_id FROM tickets WHERE id = %s)
-            AND is_custom = false
-        ''', (ticket_id,))
-        
-        # Commit changes
         conn.commit()
         cur.close()
         
-        print(f"✅ Ticket {ticket_id} deleted successfully")
+        print(f"Ticket {ticket_id} deleted successfully")
         
         return jsonify({
             'success': True,
@@ -305,7 +334,7 @@ def cancel_ticket(ticket_id):
         
     except Exception as e:
         conn.rollback()
-        print(f"❌ Delete ticket error: {e}")
+        print(f"Delete ticket error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -336,10 +365,10 @@ def resend_ticket(ticket_id):
         
         ticket = ticket[0]
         
-        # Generate QR code - FIXED VERSION
+        # Generate QR code
         qr_img = qrcode.make(ticket['qr_code'])
         buffer = io.BytesIO()
-        qr_img.save(buffer)  # ← Removed format='PNG'
+        qr_img.save(buffer)
         buffer.seek(0)
         qr_image_base64 = base64.b64encode(buffer.getvalue()).decode()
         
@@ -374,36 +403,10 @@ def resend_ticket(ticket_id):
             }), 500
             
     except Exception as e:
-        print(f"❌ Resend error: {e}")
+        print(f"Resend error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({
             'success': False,
             'error': str(e)
         }), 500
-
-@tickets_bp.route('/event/<int:event_id>', methods=['GET'])
-@admin_required
-def get_event_tickets(event_id):
-    """Get all tickets for an event"""
-    
-    tickets = execute_query('''
-        SELECT t.*, 
-               tt.name as ticket_type_name,
-               c.check_in_time,
-               u.full_name as scanner_name
-        FROM tickets t
-        JOIN ticket_types tt ON t.ticket_type_id = tt.id
-        LEFT JOIN check_ins c ON t.id = c.ticket_id
-        LEFT JOIN users u ON c.scanner_id = u.id
-        WHERE t.event_id = %s
-        ORDER BY t.created_at DESC
-    ''', (event_id,))
-    
-    return jsonify({
-        'success': True,
-        'data': {
-            'tickets': tickets or [],
-            'total': len(tickets) if tickets else 0
-        }
-    }), 200
