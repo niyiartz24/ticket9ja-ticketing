@@ -156,41 +156,62 @@ def create_ticket():
         else:
             print(f"❌ WARNING: Ticket {ticket_id} NOT found after commit!")
         
-        cur.close()
+          cur.close()
+
+# Prepare response
+ticket_data = {
+    'id': ticket_id,
+    'ticketNumber': ticket_number,
+    'recipientName': recipient_name,
+    'recipientEmail': recipient_email,
+    'ticketType': ticket_type_name,
+    'eventName': event['name'],
+    'createdAt': ticket['created_at'].isoformat()
+}
+
+print("="*60)
+print("✅ TICKET CREATED SUCCESSFULLY")
+print("="*60 + "\n")
+
+# NOW SEND EMAIL
+try:
+    print("📧 Sending ticket email...")
+    
+    from email_service import send_ticket_email
+    
+    email_sent = send_ticket_email(
+        recipient_email=recipient_email,
+        recipient_name=recipient_name,
+        event_name=event['name'],
+        event_date=event['event_date'].strftime('%B %d, %Y at %I:%M %p'),
+        event_location=event['location'],
+        ticket_number=ticket_number,
+        ticket_type=ticket_type_name,
+        qr_code_base64=qr_code_base64,
+        ticket_bg_image=ticket_bg_image
+    )
+    
+    if email_sent:
+        print("✅ Email sent successfully!")
+        # Update email_sent flag
+        execute_query(
+            'UPDATE tickets SET email_sent = true WHERE id = %s',
+            (ticket_id,),
+            fetch=False
+        )
+    else:
+        print("⚠️ Email failed to send")
         
-        # Prepare response
-        ticket_data = {
-            'id': ticket_id,
-            'ticketNumber': ticket_number,
-            'recipientName': recipient_name,
-            'recipientEmail': recipient_email,
-            'ticketType': ticket_type_name,
-            'eventName': event['name'],
-            'createdAt': ticket['created_at'].isoformat()
-        }
-        
-        print("="*60)
-        print("✅ TICKET CREATED SUCCESSFULLY")
-        print("="*60 + "\n")
-        
-        return jsonify({
-            'success': True,
-            'message': 'Ticket created successfully',
-            'data': {'ticket': ticket_data}
-        }), 201
-        
-    except Exception as e:
-        print("\n" + "!"*60)
-        print("❌ ERROR OCCURRED")
-        print("!"*60)
-        print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
-        print("!"*60 + "\n")
-        
-        conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 500
-        
+except Exception as email_error:
+    print(f"⚠️ Email error (ticket still created): {email_error}")
+    import traceback
+    traceback.print_exc()
+
+return jsonify({
+    'success': True,
+    'message': 'Ticket created successfully',
+    'data': {'ticket': ticket_data}
+}), 201
     finally:
         release_db_connection(conn)
         
