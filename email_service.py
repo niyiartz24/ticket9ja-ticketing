@@ -4,9 +4,13 @@ from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 import os
 import base64
+import socket
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Set socket timeout globally
+socket.setdefaulttimeout(10)  # 10 second timeout
 
 def send_ticket_email(
     recipient_email,
@@ -19,7 +23,7 @@ def send_ticket_email(
     qr_code_base64,
     ticket_bg_image=None
 ):
-    """Send ticket email with embedded QR code"""
+    """Send ticket email with embedded QR code - with timeout"""
     
     email_host = os.getenv('EMAIL_HOST')
     email_port = int(os.getenv('EMAIL_PORT', 587))
@@ -28,7 +32,7 @@ def send_ticket_email(
     email_from = os.getenv('EMAIL_FROM', 'SynthaxLab <noreply@synthaxlab.com>')
     
     if not all([email_host, email_user, email_password]):
-        print("⚠️ Email not configured")
+        print("⚠️ Email not configured - missing credentials")
         return False
     
     try:
@@ -73,7 +77,7 @@ def send_ticket_email(
                 <div style="background: #e3f2fd; padding: 15px; border-radius: 5px; border-left: 4px solid #2196f3;">
                     <p style="margin: 0;"><strong>📱 How to use:</strong></p>
                     <ol style="margin: 10px 0;">
-                        <li>Screenshot this email</li>
+                        <li>Screenshot this email or save it</li>
                         <li>Show QR code at entrance</li>
                         <li>Staff will scan for entry</li>
                     </ol>
@@ -94,14 +98,16 @@ def send_ticket_email(
         qr_image.add_header('Content-ID', '<qrcode>')
         msg.attach(qr_image)
         
-        # Send
+        # Send with timeout
+        print(f"📧 Connecting to {email_host}:{email_port} (10s timeout)...")
+        
         if email_port == 465:
             from smtplib import SMTP_SSL
-            with SMTP_SSL(email_host, email_port) as server:
+            with SMTP_SSL(email_host, email_port, timeout=10) as server:
                 server.login(email_user, email_password)
                 server.send_message(msg)
         else:
-            with smtplib.SMTP(email_host, email_port) as server:
+            with smtplib.SMTP(email_host, email_port, timeout=10) as server:
                 server.starttls()
                 server.login(email_user, email_password)
                 server.send_message(msg)
@@ -109,6 +115,14 @@ def send_ticket_email(
         print(f"✅ Email sent to {recipient_email}")
         return True
         
+    except socket.timeout:
+        print(f"❌ Email timeout - SMTP server not responding within 10 seconds")
+        return False
+    except smtplib.SMTPAuthenticationError:
+        print(f"❌ Email authentication failed - check EMAIL_USER and EMAIL_PASSWORD")
+        return False
     except Exception as e:
         print(f"❌ Email failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
