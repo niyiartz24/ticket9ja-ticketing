@@ -1,16 +1,9 @@
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.image import MIMEImage
 import os
 import base64
-import socket
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
-
-# Set socket timeout globally
-socket.setdefaulttimeout(10)  # 10 second timeout
 
 def send_ticket_email(
     recipient_email,
@@ -23,34 +16,25 @@ def send_ticket_email(
     qr_code_base64,
     ticket_bg_image=None
 ):
-    """Send ticket email with embedded QR code - with timeout"""
+    """Send ticket email using SendGrid API"""
     
-    email_host = os.getenv('EMAIL_HOST')
-    email_port = int(os.getenv('EMAIL_PORT', 587))
-    email_user = os.getenv('EMAIL_USER')
-    email_password = os.getenv('EMAIL_PASSWORD')
-    email_from = os.getenv('EMAIL_FROM', 'SynthaxLab <noreply@synthaxlab.com>')
+    api_key = os.getenv('SENDGRID_API_KEY')
+    from_email = os.getenv('SENDGRID_FROM_EMAIL')
+    from_name = os.getenv('SENDGRID_FROM_NAME', 'SynthaxLab')
     
-    if not all([email_host, email_user, email_password]):
-        print("⚠️ Email not configured - missing credentials")
+    if not all([api_key, from_email]):
+        print("⚠️ SendGrid not configured")
         return False
     
     try:
-        # Decode QR code
+        # Decode QR code if needed
         if 'base64,' in qr_code_base64:
             qr_data = qr_code_base64.split('base64,')[1]
         else:
             qr_data = qr_code_base64
         
-        qr_bytes = base64.b64decode(qr_data)
-        
-        # Create email
-        msg = MIMEMultipart('related')
-        msg['From'] = email_from
-        msg['To'] = recipient_email
-        msg['Subject'] = f'🎫 Your Ticket for {event_name}'
-        
-        html_body = f"""
+        # HTML email body
+        html_content = f"""
         <html>
         <body style="font-family: Arial; max-width: 600px; margin: 0 auto; padding: 20px;">
             <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
@@ -64,7 +48,7 @@ def send_ticket_email(
                 <div style="background: white; padding: 30px; border-radius: 8px; margin: 20px 0; text-align: center; border: 2px solid #667eea;">
                     <h2 style="color: #667eea; margin-top: 0;">{event_name}</h2>
                     
-                    <img src="cid:qrcode" alt="QR Code" style="max-width: 300px; margin: 20px 0;">
+                    <img src="data:image/png;base64,{qr_data}" alt="QR Code" style="max-width: 300px; margin: 20px 0;">
                     
                     <div style="text-align: left; margin: 20px 0;">
                         <p><strong>🎟️ Ticket:</strong> {ticket_number}</p>
@@ -91,38 +75,50 @@ def send_ticket_email(
         </html>
         """
         
-        msg.attach(MIMEText(html_body, 'html'))
+        # SendGrid API request
+        url = "https://api.sendgrid.com/v3/mail/send"
         
-        # Attach QR image
-        qr_image = MIMEImage(qr_bytes)
-        qr_image.add_header('Content-ID', '<qrcode>')
-        msg.attach(qr_image)
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
         
-        # Send with timeout
-        print(f"📧 Connecting to {email_host}:{email_port} (10s timeout)...")
+        data = {
+            "personalizations": [
+                {
+                    "to": [{"email": recipient_email, "name": recipient_name}],
+                    "subject": f"🎫 Your Ticket for {event_name}"
+                }
+            ],
+            "from": {
+                "email": from_email,
+                "name": from_name
+            },
+            "content": [
+                {
+                    "type": "text/html",
+                    "value": html_content
+                }
+            ]
+        }
         
-        if email_port == 465:
-            from smtplib import SMTP_SSL
-            with SMTP_SSL(email_host, email_port, timeout=10) as server:
-                server.login(email_user, email_password)
-                server.send_message(msg)
+        print(f"📧 Sending email via SendGrid API to {recipient_email}...")
+        
+        response = requests.post(url, json=data, headers=headers, timeout=10)
+        
+        if response.status_code == 202:
+            print(f"✅ Email sent successfully to {recipient_email}")
+            return True
         else:
-            with smtplib.SMTP(email_host, email_port, timeout=10) as server:
-                server.starttls()
-                server.login(email_user, email_password)
-                server.send_message(msg)
+            print(f"❌ SendGrid API error: {response.status_code}")
+            print(f"Response: {response.text}")
+            return False
         
-        print(f"✅ Email sent to {recipient_email}")
-        return True
-        
-    except socket.timeout:
-        print(f"❌ Email timeout - SMTP server not responding within 10 seconds")
-        return False
-    except smtplib.SMTPAuthenticationError:
-        print(f"❌ Email authentication failed - check EMAIL_USER and EMAIL_PASSWORD")
+    except requests.exceptions.Timeout:
+        print("❌ SendGrid API timeout")
         return False
     except Exception as e:
-        print(f"❌ Email failed: {e}")
+        print(f"❌ Email error: {e}")
         import traceback
         traceback.print_exc()
         return False
