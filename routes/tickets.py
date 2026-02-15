@@ -410,3 +410,98 @@ def resend_ticket(ticket_id):
             'success': False,
             'error': str(e)
         }), 500
+        
+@tickets_bp.route('/test-email', methods=['GET'])
+def test_email_public():
+    """Test email configuration - no auth required for testing"""
+    import os
+    from datetime import datetime
+    
+    email_host = os.getenv('EMAIL_HOST')
+    email_port = os.getenv('EMAIL_PORT')
+    email_user = os.getenv('EMAIL_USER')
+    email_password = os.getenv('EMAIL_PASSWORD')
+    
+    print("\n" + "="*60)
+    print("EMAIL CONFIGURATION TEST")
+    print("="*60)
+    print(f"EMAIL_HOST: {email_host}")
+    print(f"EMAIL_PORT: {email_port}")
+    print(f"EMAIL_USER: {email_user}")
+    print(f"EMAIL_PASSWORD: {'SET (length: ' + str(len(email_password)) + ')' if email_password else 'NOT SET'}")
+    print("="*60)
+    
+    if not all([email_host, email_user, email_password]):
+        return jsonify({
+            'success': False,
+            'error': 'Email credentials not configured',
+            'details': {
+                'EMAIL_HOST': 'SET' if email_host else 'MISSING',
+                'EMAIL_PORT': email_port or 'MISSING',
+                'EMAIL_USER': 'SET' if email_user else 'MISSING',
+                'EMAIL_PASSWORD': 'SET' if email_password else 'MISSING'
+            }
+        }), 500
+    
+    # Try to send test email
+    try:
+        import smtplib
+        import socket
+        from email.mime.text import MIMEText
+        
+        socket.setdefaulttimeout(15)
+        
+        msg = MIMEText("This is a test email from SynthaxLab Ticketing System.")
+        msg['Subject'] = 'Test Email - SynthaxLab'
+        msg['From'] = email_user
+        msg['To'] = email_user  # Send to yourself
+        
+        print("Attempting SMTP connection...")
+        
+        with smtplib.SMTP(email_host, int(email_port), timeout=15) as server:
+            print("Connected to SMTP server")
+            
+            print("Starting TLS...")
+            server.starttls()
+            print("TLS started")
+            
+            print("Logging in...")
+            server.login(email_user, email_password)
+            print("Login successful")
+            
+            print("Sending email...")
+            server.send_message(msg)
+            print("Email sent!")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Test email sent successfully to {email_user}',
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except smtplib.SMTPAuthenticationError as e:
+        print(f"Authentication failed: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'SMTP Authentication Failed',
+            'details': 'Check your EMAIL_USER and EMAIL_PASSWORD. Make sure you are using an App Password, not your regular Gmail password.',
+            'smtp_error': str(e)
+        }), 500
+        
+    except socket.timeout:
+        print("Connection timeout")
+        return jsonify({
+            'success': False,
+            'error': 'Connection Timeout',
+            'details': 'Unable to connect to Gmail SMTP server. Gmail may be blocked on Render. Try SendGrid instead.'
+        }), 500
+        
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'type': type(e).__name__
+        }), 500
