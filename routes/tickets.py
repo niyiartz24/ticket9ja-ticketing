@@ -317,59 +317,70 @@ def cancel_ticket(ticket_id):
 @admin_required
 def resend_ticket(ticket_id):
     """Resend ticket email"""
-    
-    ticket = execute_query('''
-        SELECT t.*, 
-               e.name as event_name, 
-               e.event_date, 
-               e.location,
-               e.banner_image,
-               tt.name as ticket_type_name
-        FROM tickets t
-        JOIN events e ON t.event_id = e.id
-        JOIN ticket_types tt ON t.ticket_type_id = tt.id
-        WHERE t.id = %s
-    ''', (ticket_id,))
-    
-    if not ticket:
-        return jsonify({'success': False, 'error': 'Ticket not found'}), 404
-    
-    ticket = ticket[0]
-    
-    # Generate QR code
-    qr = qrcode.QRCode(version=1, box_size=10, border=2)
-    qr.add_data(ticket['qr_code'])
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    
-    buffer = io.BytesIO()
-    img.save(buffer, format='PNG')
-    qr_image_base64 = base64.b64encode(buffer.getvalue()).decode()
-    
-    # Resend email
-    email_sent = send_ticket_email(
-        recipient_email=ticket['recipient_email'],
-        recipient_name=ticket['recipient_name'],
-        event_name=ticket['event_name'],
-        event_date=str(ticket['event_date']),
-        event_location=ticket['location'],
-        ticket_number=ticket['ticket_number'],
-        ticket_type=ticket['ticket_type_name'],
-        qr_code_base64=qr_image_base64,
-        ticket_bg_image=ticket['ticket_bg_image'] or ticket['banner_image']
-    )
-    
-    if email_sent:
-        execute_query(
-            'UPDATE tickets SET email_sent = true WHERE id = %s',
-            (ticket_id,),
-            fetch=False
+    try:
+        ticket = execute_query('''
+            SELECT t.*, 
+                   e.name as event_name, 
+                   e.event_date, 
+                   e.location,
+                   e.banner_image,
+                   tt.name as ticket_type_name
+            FROM tickets t
+            JOIN events e ON t.event_id = e.id
+            JOIN ticket_types tt ON t.ticket_type_id = tt.id
+            WHERE t.id = %s
+        ''', (ticket_id,))
+        
+        if not ticket:
+            return jsonify({'success': False, 'error': 'Ticket not found'}), 404
+        
+        ticket = ticket[0]
+        
+        # Generate QR code - FIXED VERSION
+        qr_img = qrcode.make(ticket['qr_code'])
+        buffer = io.BytesIO()
+        qr_img.save(buffer)  # ← Removed format='PNG'
+        buffer.seek(0)
+        qr_image_base64 = base64.b64encode(buffer.getvalue()).decode()
+        
+        # Send email
+        email_sent = send_ticket_email(
+            recipient_email=ticket['recipient_email'],
+            recipient_name=ticket['recipient_name'],
+            event_name=ticket['event_name'],
+            event_date=ticket['event_date'].strftime('%B %d, %Y at %I:%M %p'),
+            event_location=ticket['location'],
+            ticket_number=ticket['ticket_number'],
+            ticket_type=ticket['ticket_type_name'],
+            qr_code_base64=qr_image_base64,
+            ticket_bg_image=ticket.get('ticket_bg_image') or ticket.get('banner_image')
         )
-    
-    return jsonify({
-        'success': True,
-        'message': 'Ticket email resent successfully'
-    }), 200
+        
+        if email_sent:
+            execute_query(
+                'UPDATE tickets SET email_sent = true WHERE id = %s',
+                (ticket_id,),
+                fetch=False
+            )
+            
+            return jsonify({
+                'success': True,
+                'message': 'Ticket email resent successfully'
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to send email'
+            }), 500
+            
+    except Exception as e:
+        print(f"❌ Resend error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @tickets_bp.route('/event/<int:event_id>', methods=['GET'])
 @admin_required
