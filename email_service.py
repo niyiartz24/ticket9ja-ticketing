@@ -16,7 +16,7 @@ def send_ticket_email(
     qr_code_base64,
     ticket_bg_image=None
 ):
-    """Send ticket email using SendGrid API"""
+    """Send ticket email using SendGrid API with QR code as attachment"""
     
     api_key = os.getenv('SENDGRID_API_KEY')
     from_email = os.getenv('SENDGRID_FROM_EMAIL')
@@ -27,7 +27,7 @@ def send_ticket_email(
         return False
     
     try:
-        # Decode QR code if needed
+        # Clean base64 data
         if 'base64,' in qr_code_base64:
             qr_data = qr_code_base64.split('base64,')[1]
         else:
@@ -48,7 +48,7 @@ def send_ticket_email(
                 <div style="background: white; padding: 30px; border-radius: 8px; margin: 20px 0; text-align: center; border: 2px solid #667eea;">
                     <h2 style="color: #667eea; margin-top: 0;">{event_name}</h2>
                     
-                    <img src="data:image/png;base64,{qr_data}" alt="QR Code" style="max-width: 300px; margin: 20px 0;">
+                    <img src="cid:qrcode" alt="QR Code" style="max-width: 300px; margin: 20px 0; display: block; margin-left: auto; margin-right: auto;">
                     
                     <div style="text-align: left; margin: 20px 0;">
                         <p><strong>🎟️ Ticket:</strong> {ticket_number}</p>
@@ -75,7 +75,7 @@ def send_ticket_email(
         </html>
         """
         
-        # SendGrid API request
+        # SendGrid API request with attachment
         url = "https://api.sendgrid.com/v3/mail/send"
         
         headers = {
@@ -98,6 +98,15 @@ def send_ticket_email(
                 {
                     "type": "text/html",
                     "value": html_content
+                }
+            ],
+            "attachments": [
+                {
+                    "content": qr_data,
+                    "type": "image/png",
+                    "filename": "qrcode.png",
+                    "disposition": "inline",
+                    "content_id": "qrcode"
                 }
             ]
         }
