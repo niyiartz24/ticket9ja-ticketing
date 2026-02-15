@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from db import get_db_connection, release_db_connection
+from database.db import get_db_connection, release_db_connection  # ← FIXED
 
 load_dotenv()
 
