@@ -24,65 +24,7 @@ def admin_required(fn):
         return fn(*args, **kwargs)
     return wrapper
 
-@tickets_bp.route('/create', methods=['POST'])
-@admin_required
-def create_ticket():
-    """Create ticket and send email"""
-    print("\n" + "="*60)
-    print("🎫 TICKET CREATION REQUEST")
-    print("="*60)
-    
-    user_id = get_jwt_identity()
-    user_id = int(user_id)
-    
-    data = request.get_json()
-    print(f"📦 Request data: {data}")
-    
-    event_id = data.get('eventId')
-    ticket_type_id = data.get('ticketTypeId')
-    recipient_name = data.get('recipientName')
-    recipient_email = data.get('recipientEmail')
-    recipient_phone = data.get('recipientPhone', '')
-    ticket_bg_image = data.get('ticketBgImage')
-    custom_ticket_type = data.get('customTicketType')
-    
-    if not all([event_id, recipient_name, recipient_email]):
-        return jsonify({'success': False, 'error': 'Missing required fields'}), 400
-    
-    # Import here to avoid circular imports
-    
-    # Get connection
-    conn = get_db_connection()
-    
-    # Set autocommit to False to have explicit control
-    conn.autocommit = False
-    
-    try:
-        print("💾 Starting transaction...")
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        
-        # Get event
-        print(f"📋 Getting event {event_id}...")
-        cur.execute('SELECT * FROM events WHERE id = %s', (event_id,))
-        event = cur.fetchone()
-        
-        if not event:
-            print("❌ Event not found")
-            return jsonify({'success': False, 'error': 'Event not found'}), 404
-        
-        print(f"✅ Event found: {event['name']}")
-        
-        # Handle ticket type
-        if custom_ticket_type:
-            print(f"📝 Creating custom ticket type: {custom_ticket_type['name']}")
-            cur.execute('''
-                INSERT INTO ticket_types (event_id, name, price, quantity, is_custom, description)
-                VALUES (%s, %s, 0, 1, true, %s)
-                RETURNING id, name
-            ''', (event_id, custom_ticket_type['name'], custom_ticket_type.get('description', '')))
-            
-            ticket_type = cur.fetchone()
-            ticket_type_id = ticket_type['id']
+? = ticket_type['id']
             ticket_type_name = ticket_type['name']
             print(f"✅ Custom ticket type created: {ticket_type_name} (ID: {ticket_type_id})")
             
@@ -166,6 +108,143 @@ def create_ticket():
         # Prepare response data
         ticket_data = {
             'id': ticket_id,
+@tickets_bp.route('/create', methods=['POST'])
+@admin_required
+def create_ticket():
+    """Create ticket and send email"""
+    print("\n" + "="*60)
+    print("🎫 TICKET CREATION REQUEST")
+    print("="*60)
+    
+    user_id = get_jwt_identity()
+    user_id = int(user_id)
+    
+    data = request.get_json()
+    print(f"📦 Request data: {data}")
+    
+    event_id = data.get('eventId')
+    ticket_type_id = data.get('ticketTypeId')
+    recipient_name = data.get('recipientName')
+    recipient_email = data.get('recipientEmail')
+    recipient_phone = data.get('recipientPhone', '')
+    ticket_bg_image = data.get('ticketBgImage')
+    custom_ticket_type = data.get('customTicketType')
+    
+    if not all([event_id, recipient_name, recipient_email]):
+        return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+    
+    # Import here
+    import qrcode
+    import io
+    import base64
+    import uuid
+    
+    conn = get_db_connection()
+    conn.autocommit = False
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        print(f"📋 Getting event {event_id}...")
+        cur.execute('SELECT * FROM events WHERE id = %s', (event_id,))
+        event = cur.fetchone()
+        
+        if not event:
+            print("❌ Event not found")
+            return jsonify({'success': False, 'error': 'Event not found'}), 404
+        
+        print(f"✅ Event found: {event['name']}")
+        
+        # Handle ticket type
+        if custom_ticket_type:
+            print(f"📝 Creating custom ticket type: {custom_ticket_type['name']}")
+            cur.execute('''
+                INSERT INTO ticket_types (event_id, name, price, quantity, is_custom, description)
+                VALUES (%s, %s, 0, 1, true, %s)
+                RETURNING id, name
+            ''', (event_id, custom_ticket_type['name'], custom_ticket_type.get('description', '')))
+            
+            ticket_type = cur.fetchone()
+            ticket_type_id = ticket_type['id']
+            ticket_type_name = ticket_type['name']
+            print(f"✅ Custom ticket type created: {ticket_type_name} (ID: {ticket_type_id})")
+            
+        else:
+            print(f"📋 Getting ticket type {ticket_type_id}...")
+            cur.execute('SELECT * FROM ticket_types WHERE id = %s', (ticket_type_id,))
+            ticket_type = cur.fetchone()
+            
+            if not ticket_type:
+                print("❌ Ticket type not found")
+                return jsonify({'success': False, 'error': 'Ticket type not found'}), 404
+            
+            ticket_type_name = ticket_type['name']
+            print(f"✅ Ticket type found: {ticket_type_name}")
+            
+            # Update quantity
+            cur.execute('''
+                UPDATE ticket_types 
+                SET quantity_issued = quantity_issued + 1 
+                WHERE id = %s
+            ''', (ticket_type_id,))
+            print("✅ Quantity updated")
+        
+        # Generate ticket number and QR code
+        ticket_number = f"TKT-{uuid.uuid4().hex[:8].upper()}"
+        qr_data = f"{ticket_number}|{event_id}|{recipient_email}"
+        
+        print(f"🎟️ Generated ticket number: {ticket_number}")
+        
+        # Generate QR code - FIXED VERSION
+        qr_img = qrcode.make(qr_data)
+        buffer = io.BytesIO()
+        qr_img.save(buffer)
+        buffer.seek(0)
+        qr_code_base64 = base64.b64encode(buffer.getvalue()).decode()
+        
+        print("✅ QR code generated")
+        
+        # Insert ticket
+        print("💾 Inserting ticket into database...")
+        cur.execute('''
+            INSERT INTO tickets (
+                event_id, ticket_type_id, qr_code, ticket_number,
+                recipient_name, recipient_email, recipient_phone,
+                ticket_bg_image, status, created_by, email_sent
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'active', %s, false)
+            RETURNING id, ticket_number, created_at
+        ''', (
+            event_id, ticket_type_id, qr_data, ticket_number,
+            recipient_name, recipient_email, recipient_phone,
+            ticket_bg_image, user_id
+        ))
+        
+        ticket = cur.fetchone()
+        ticket_id = ticket['id']
+        
+        print(f"✅ Ticket inserted with ID: {ticket_id}")
+        
+        # Commit
+        print("💾 Committing transaction...")
+        conn.commit()
+        print("✅ Transaction committed!")
+        
+        # Verify
+        print("🔍 Verifying ticket in database...")
+        cur.execute('SELECT id, ticket_number FROM tickets WHERE id = %s', (ticket_id,))
+        verify = cur.fetchone()
+        
+        if verify:
+            print(f"✅ VERIFIED: Ticket {verify['ticket_number']} exists in database!")
+        else:
+            print(f"❌ WARNING: Ticket {ticket_id} NOT found after commit!")
+        
+        cur.close()
+        
+        # Prepare response
+        ticket_data = {
+            'id': ticket_id,
             'ticketNumber': ticket_number,
             'recipientName': recipient_name,
             'recipientEmail': recipient_email,
@@ -178,7 +257,6 @@ def create_ticket():
         print("✅ TICKET CREATED SUCCESSFULLY")
         print("="*60 + "\n")
         
-        # Return success BEFORE trying email
         return jsonify({
             'success': True,
             'message': 'Ticket created successfully',
