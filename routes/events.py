@@ -153,18 +153,20 @@ def create_event():
                 
                 # Create default ticket types in the same transaction
                 print("🎫 Creating ticket types...")
-                default_types = [
-                    ('Regular', 0, int(int(capacity) * 0.6), 'Standard admission', '#3B82F6'),
-                    ('VIP', 0, int(int(capacity) * 0.25), 'VIP access', '#8B5CF6'),
-                    ('VVIP', 0, int(int(capacity) * 0.1), 'Premium access', '#F59E0B'),
-                    ('Student', 0, int(int(capacity) * 0.05), 'Student discount', '#10B981')
-                ]
-                
-                for ticket_name, price, qty, desc, color in default_types:
-                    cur.execute('''
-                        INSERT INTO ticket_types (event_id, name, price, quantity, is_custom, description, color)
-                        VALUES (%s, %s, %s, %s, false, %s, %s)
-                    ''', (event_id, ticket_name, price, qty, desc, color))
+                # Create default ticket types with new names
+default_ticket_types = [
+    {'name': 'Early bird', 'price': 50.00, 'quantity': 100},
+    {'name': 'Late bird', 'price': 80.00, 'quantity': 50},
+    {'name': 'VIP', 'price': 150.00, 'quantity': 30},
+    {'name': 'Table for 4', 'price': 300.00, 'quantity': 10},
+    {'name': 'Table for 8', 'price': 500.00, 'quantity': 5},
+]
+
+for tt in default_ticket_types:
+    execute_query('''
+        INSERT INTO ticket_types (event_id, name, price, quantity, quantity_issued)
+        VALUES (%s, %s, %s, %s, 0)
+    ''', (event_id, tt['name'], tt['price'], tt['quantity']), fetch=False)
                 
                 # Commit the entire transaction
                 conn.commit()
