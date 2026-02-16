@@ -13,7 +13,7 @@ def admin_required(fn):
     @jwt_required()
     def wrapper(*args, **kwargs):
         user_id = get_jwt_identity()
-        user_id = int(user_id)  # ✅ Convert string back to integer
+        user_id = int(user_id)
         
         user = execute_query('SELECT role FROM users WHERE id = %s', (user_id,))
         
@@ -111,9 +111,6 @@ def get_event_by_id(event_id):
 @admin_required
 def create_event():
     """Create new event with optional banner image"""
-    from database.db import get_db_connection, release_db_connection
-    from psycopg2.extras import RealDictCursor
-    
     try:
         user_id = get_jwt_identity()
         user_id = int(user_id)
@@ -136,7 +133,7 @@ def create_event():
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # Create event
-                print("💾 Creating event...")
+                print("Creating event...")
                 cur.execute('''
                     INSERT INTO events (created_by, name, description, banner_image, event_date, location, capacity, status)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, 'draft')
@@ -149,28 +146,27 @@ def create_event():
                     raise Exception("Failed to create event")
                 
                 event_id = event['id']
-                print(f"✅ Event created with ID: {event_id}")
+                print(f"Event created with ID: {event_id}")
                 
-                # Create default ticket types in the same transaction
-                print("🎫 Creating ticket types...")
-                # Create default ticket types with new names
-default_ticket_types = [
-    {'name': 'Early bird', 'price': 50.00, 'quantity': 100},
-    {'name': 'Late bird', 'price': 80.00, 'quantity': 50},
-    {'name': 'VIP', 'price': 150.00, 'quantity': 30},
-    {'name': 'Table for 4', 'price': 300.00, 'quantity': 10},
-    {'name': 'Table for 8', 'price': 500.00, 'quantity': 5},
-]
-
-for tt in default_ticket_types:
-    execute_query('''
-        INSERT INTO ticket_types (event_id, name, price, quantity, quantity_issued)
-        VALUES (%s, %s, %s, %s, 0)
-    ''', (event_id, tt['name'], tt['price'], tt['quantity']), fetch=False)
+                # Create default ticket types
+                print("Creating ticket types...")
+                default_ticket_types = [
+                    ('Early bird', 50.00, 100, 'Early bird special pricing', '#10B981'),
+                    ('Late bird', 80.00, 50, 'Regular pricing', '#3B82F6'),
+                    ('VIP', 150.00, 30, 'VIP access and perks', '#8B5CF6'),
+                    ('Table for 4', 300.00, 10, 'Reserved table for 4 people', '#F59E0B'),
+                    ('Table for 8', 500.00, 5, 'Reserved table for 8 people', '#EF4444')
+                ]
+                
+                for ticket_name, price, qty, desc, color in default_ticket_types:
+                    cur.execute('''
+                        INSERT INTO ticket_types (event_id, name, price, quantity, is_custom, description, color)
+                        VALUES (%s, %s, %s, %s, false, %s, %s)
+                    ''', (event_id, ticket_name, price, qty, desc, color))
                 
                 # Commit the entire transaction
                 conn.commit()
-                print("✅ Transaction committed successfully")
+                print("Transaction committed successfully")
                 
                 return jsonify({
                     'success': True,
@@ -180,13 +176,13 @@ for tt in default_ticket_types:
                 
         except Exception as e:
             conn.rollback()
-            print(f"❌ Transaction rolled back: {e}")
+            print(f"Transaction rolled back: {e}")
             raise e
         finally:
             release_db_connection(conn)
         
     except Exception as e:
-        print(f"❌ Create event error: {e}")
+        print(f"Create event error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -254,7 +250,7 @@ def delete_event(event_id):
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         
-        print(f"🗑️ Deleting event {event_id}...")
+        print(f"Deleting event {event_id}...")
         
         # Get event details first
         cur.execute('SELECT name FROM events WHERE id = %s', (event_id,))
@@ -268,27 +264,27 @@ def delete_event(event_id):
         # 1. Delete check-ins first
         cur.execute('DELETE FROM check_ins WHERE ticket_id IN (SELECT id FROM tickets WHERE event_id = %s)', (event_id,))
         deleted_checkins = cur.rowcount
-        print(f"  ✓ Deleted {deleted_checkins} check-ins")
+        print(f"Deleted {deleted_checkins} check-ins")
         
         # 2. Delete tickets
         cur.execute('DELETE FROM tickets WHERE event_id = %s', (event_id,))
         deleted_tickets = cur.rowcount
-        print(f"  ✓ Deleted {deleted_tickets} tickets")
+        print(f"Deleted {deleted_tickets} tickets")
         
         # 3. Delete ticket types
         cur.execute('DELETE FROM ticket_types WHERE event_id = %s', (event_id,))
         deleted_types = cur.rowcount
-        print(f"  ✓ Deleted {deleted_types} ticket types")
+        print(f"Deleted {deleted_types} ticket types")
         
         # 4. Finally delete the event
         cur.execute('DELETE FROM events WHERE id = %s', (event_id,))
-        print(f"  ✓ Deleted event: {event['name']}")
+        print(f"Deleted event: {event['name']}")
         
         # Commit all changes
         conn.commit()
         cur.close()
         
-        print(f"✅ Event {event_id} and all related data deleted successfully")
+        print(f"Event {event_id} and all related data deleted successfully")
         
         return jsonify({
             'success': True,
@@ -302,7 +298,7 @@ def delete_event(event_id):
         
     except Exception as e:
         conn.rollback()
-        print(f"❌ Delete event error: {e}")
+        print(f"Delete event error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
