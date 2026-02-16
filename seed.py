@@ -83,24 +83,32 @@ def seed_database():
                 event_id = event[0]['id']
                 print(f"   ✅ Event created (ID: {event_id})")
                 
-                # Create ticket types
-                print("🎫 Creating ticket types...")
-                ticket_types = [
-                    ('Regular', 299.00, 3000, False, 'Standard conference access', '#3B82F6'),
-                    ('VIP', 599.00, 500, False, 'VIP access with exclusive sessions', '#8B5CF6'),
-                    ('VVIP', 999.00, 100, False, 'All-access premium pass', '#F59E0B'),
-                    ('Student', 149.00, 400, False, 'Discounted student rate (ID required)', '#10B981'),
-                ]
-                
-                for name, price, qty, is_custom, desc, color in ticket_types:
-                    execute_query('''
-                        INSERT INTO ticket_types (event_id, name, price, quantity, is_custom, description, color)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ''', (event_id, name, price, qty, is_custom, desc, color), fetch=False)
-                
-                print("   ✅ Ticket types created")
-        except Exception as e:
-            print(f"   ❌ Failed to create event: {e}")
+                # Create default ticket types for each event
+ticket_types_data = [
+    # Event 1 ticket types
+    ('Early bird', 50.00, 100, event1_id),
+    ('Late bird', 80.00, 50, event1_id),
+    ('VIP', 150.00, 30, event1_id),
+    ('Table for 4', 300.00, 10, event1_id),
+    ('Table for 8', 500.00, 5, event1_id),
+    
+    # Event 2 ticket types
+    ('Early bird', 40.00, 150, event2_id),
+    ('Late bird', 70.00, 75, event2_id),
+    ('VIP', 120.00, 40, event2_id),
+    ('Table for 4', 250.00, 15, event2_id),
+    ('Table for 8', 450.00, 8, event2_id),
+]
+
+print("Creating ticket types...")
+for name, price, quantity, event_id in ticket_types_data:
+    cur.execute('''
+        INSERT INTO ticket_types (event_id, name, price, quantity, quantity_issued)
+        VALUES (%s, %s, %s, %s, 0)
+    ''', (event_id, name, price, quantity))
+
+print("✅ Ticket types created")
+
     
     print("\n✨ Database seeded successfully!\n")
     print("=" * 60)
