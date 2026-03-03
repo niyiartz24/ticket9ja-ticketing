@@ -80,12 +80,13 @@ def send_ticket_email(
                                 <p style="color: white; margin: 5px 0 0 0; font-size: 24px; font-weight: bold; letter-spacing: 3px;">{ticket_number}</p>
                             </div>
                         </div>
-                        
                         <!-- QR Code - Using Content-ID -->
-                        <div style="text-align: center; margin: 30px 0; padding: 25px; background: #f9f9f9; border-radius: 15px;">
-                            <p style="color: #666; margin: 0 0 15px 0; font-size: 14px; font-weight: bold;">SCAN AT ENTRANCE</p>
-                            <img src="cid:qrcode" alt="Ticket QR Code" style="width: 280px; height: 280px; border: 4px solid white; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: block; margin: 0 auto;">
-                        </div>
+                        <div style="text-align: center; margin: 30px 0; padding: 30px 20px; background: #f9f9f9; border-radius: 15px; overflow: visible;">
+                           <p style="color: #666; margin: 0 0 20px 0; font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">Scan at Entrance</p>
+                        <div style="display: inline-block; padding: 15px; background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+                           <img src="cid:qrcode" alt="Ticket QR Code" style="display: block; max-width: 220px; width: 100%; height: auto;">
+                             </div>
+</div>
                         
                         <!-- Ticket Details -->
                         <div style="margin: 30px 0; padding: 25px; background: #f9f9f9; border-radius: 15px;">
