@@ -15,7 +15,7 @@ def send_ticket_email(
     qr_code_base64,
     ticket_bg_image=None
 ):
-    """Send ticket email with downloadable ticket card"""
+    """Send ticket email with embedded QR code"""
     
     api_key = os.getenv('RESEND_API_KEY')
     from_email = os.getenv('EMAIL_FROM')
@@ -34,7 +34,7 @@ def send_ticket_email(
         else:
             qr_data = qr_code_base64
         
-        # Create downloadable ticket card HTML
+        # Create ticket card HTML with cid reference
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -51,16 +51,16 @@ def send_ticket_email(
         <body style="margin: 0; padding: 0; background-color: #f5f5f5; font-family: 'Arial', sans-serif;">
             <div style="max-width: 650px; margin: 0 auto; padding: 20px;">
                 
-                <!-- Email Header (not part of ticket) -->
+                <!-- Email Header -->
                 <div class="no-print" style="text-align: center; padding: 20px 0;">
                     <h2 style="color: #333; margin: 0;">Your Ticket is Ready!</h2>
                     <p style="color: #666; margin: 10px 0;">Save this ticket or screenshot it for entry</p>
                 </div>
                 
-                <!-- TICKET CARD - This is what user saves/screenshots -->
+                <!-- TICKET CARD -->
                 <div id="ticket-card" style="background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.15); margin: 20px 0;">
                     
-                    <!-- Ticket Header with gradient -->
+                    <!-- Ticket Header -->
                     <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; position: relative;">
                         <div style="background: rgba(255,255,255,0.2); display: inline-block; padding: 8px 20px; border-radius: 20px; margin-bottom: 15px;">
                             <span style="color: white; font-size: 13px; font-weight: bold; letter-spacing: 1px;">ADMIT ONE</span>
@@ -73,7 +73,7 @@ def send_ticket_email(
                     <!-- Ticket Body -->
                     <div style="padding: 40px 30px;">
                         
-                        <!-- Ticket Number Badge - PROMINENT -->
+                        <!-- Ticket Number Badge -->
                         <div style="text-align: center; margin-bottom: 30px;">
                             <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: inline-block; padding: 12px 30px; border-radius: 25px; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">
                                 <p style="color: rgba(255,255,255,0.8); margin: 0; font-size: 12px; letter-spacing: 2px;">TICKET NUMBER</p>
@@ -81,13 +81,13 @@ def send_ticket_email(
                             </div>
                         </div>
                         
-                        <!-- QR Code -->
+                        <!-- QR Code - Using Content-ID -->
                         <div style="text-align: center; margin: 30px 0; padding: 25px; background: #f9f9f9; border-radius: 15px;">
                             <p style="color: #666; margin: 0 0 15px 0; font-size: 14px; font-weight: bold;">SCAN AT ENTRANCE</p>
-                            <img src="data:image/png;base64,{qr_data}" alt="QR Code" style="width: 280px; height: 280px; border: 4px solid white; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+                            <img src="cid:qrcode" alt="Ticket QR Code" style="width: 280px; height: 280px; border: 4px solid white; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: block; margin: 0 auto;">
                         </div>
                         
-                        <!-- Ticket Details Grid -->
+                        <!-- Ticket Details -->
                         <div style="margin: 30px 0; padding: 25px; background: #f9f9f9; border-radius: 15px;">
                             <table style="width: 100%; border-collapse: collapse;">
                                 <tr style="border-bottom: 2px solid #e0e0e0;">
@@ -124,7 +124,7 @@ def send_ticket_email(
                         <!-- Important Notice -->
                         <div style="background: #fff3e0; padding: 18px; border-radius: 12px; border-left: 5px solid #ff9800; margin: 20px 0;">
                             <p style="margin: 0; color: #e65100; font-size: 14px; line-height: 1.6;">
-                                <strong>⚠️ Important:</strong> This ticket is valid for <strong>single entry only</strong>. Each ticket has a unique QR code and number. Do not share your QR code with others.
+                                <strong>⚠️ Important:</strong> This ticket is valid for <strong>single entry only</strong>. Each ticket has a unique QR code and number. Do not share your QR code.
                             </p>
                         </div>
                         
@@ -136,12 +136,9 @@ def send_ticket_email(
                         
                     </div>
                     
-                    <!-- Decorative Tear Line -->
-                    <div style="height: 2px; background: linear-gradient(to right, transparent, #e0e0e0, transparent);"></div>
-                    
                 </div>
                 
-                <!-- Email Footer Instructions (not part of ticket) -->
+                <!-- Email Footer -->
                 <div class="no-print" style="text-align: center; padding: 30px 20px; color: #888;">
                     <p style="font-size: 14px; margin: 0 0 10px 0;">💾 <strong>Save This Ticket:</strong> Screenshot or save this email</p>
                     <p style="font-size: 13px; margin: 0; line-height: 1.6;">
@@ -162,17 +159,26 @@ def send_ticket_email(
             "Content-Type": "application/json"
         }
         
+        # Send with QR code as inline attachment
         data = {
             "from": from_email,
             "to": [recipient_email],
             "subject": f"🎫 Ticket {ticket_number} - {event_name}",
-            "html": html_content
+            "html": html_content,
+            "attachments": [
+                {
+                    "filename": "qrcode.png",
+                    "content": qr_data,
+                    "content_id": "qrcode"
+                }
+            ]
         }
         
-        print(f"Calling Resend API...")
+        print(f"Calling Resend API with QR attachment...")
         response = requests.post(url, json=data, headers=headers, timeout=15)
         
         print(f"Status: {response.status_code}")
+        print(f"Response: {response.text}")
         
         if response.status_code in [200, 201]:
             print(f"SUCCESS: Ticket sent to {recipient_email}")
