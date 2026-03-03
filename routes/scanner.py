@@ -3,7 +3,6 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from database.db import execute_query, get_db_connection, release_db_connection
 from psycopg2.extras import RealDictCursor
 from functools import wraps
-from datetime import datetime
 
 scanner_bp = Blueprint('scanner', __name__)
 
@@ -25,17 +24,22 @@ def scanner_required(fn):
 @scanner_bp.route('/validate', methods=['POST'])
 @scanner_required
 def validate_ticket():
-    """Validate a ticket by QR code"""
+    """Validate and check-in a ticket"""
+    print("\n" + "="*60)
+    print("TICKET VALIDATION REQUEST")
+    print("="*60)
+    
     user_id = get_jwt_identity()
     user_id = int(user_id)
     
     data = request.get_json()
     qr_code = data.get('qrCode')
     
+    print(f"QR Code received: {qr_code}")
+    print(f"Scanner ID: {user_id}")
+    
     if not qr_code:
         return jsonify({'success': False, 'error': 'QR code required'}), 400
-    
-    print(f"🔍 Validating ticket: {qr_code}")
     
     conn = get_db_connection()
     conn.autocommit = False
@@ -43,10 +47,13 @@ def validate_ticket():
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Get ticket details
+        # Find ticket by QR code
+        print(f"Searching for ticket with QR: {qr_code}")
+        
         cur.execute('''
-            SELECT t.*, e.name as event_name, e.event_date, e.location,
-                   tt.name as ticket_type_name
+            SELECT t.*, 
+                   e.name as event_name,
+                   tt.name as ticket_type
             FROM tickets t
             JOIN events e ON t.event_id = e.id
             JOIN ticket_types tt ON t.ticket_type_id = tt.id
@@ -56,94 +63,83 @@ def validate_ticket():
         ticket = cur.fetchone()
         
         if not ticket:
-            print("❌ Ticket not found")
+            print("Ticket not found!")
             return jsonify({
                 'success': False,
-                'error': 'Invalid ticket',
-                'valid': False
+                'error': 'Ticket not found. Please check the ticket number.'
             }), 404
         
-        print(f"✅ Ticket found: {ticket['ticket_number']}")
+        print(f"Ticket found: {ticket['ticket_number']} - Status: {ticket['status']}")
         
-        # Check if already used
-        if ticket['status'] == 'used':
-            print("⚠️ Ticket already used")
-            
-            # Get previous check-in details
-            cur.execute('''
-                SELECT check_in_time, u.full_name as scanner_name
-                FROM check_ins ci
-                JOIN users u ON ci.scanner_id = u.id
-                WHERE ci.ticket_id = %s
-                ORDER BY ci.check_in_time DESC
-                LIMIT 1
-            ''', (ticket['id'],))
-            
-            previous_checkin = cur.fetchone()
-            
+        # Check if ticket is active
+        if ticket['status'] != 'active':
+            print(f"Ticket status is {ticket['status']}, not active")
             return jsonify({
                 'success': False,
-                'error': 'Ticket already used',
-                'valid': False,
-                'ticket': {
-                    'ticketNumber': ticket['ticket_number'],
-                    'recipientName': ticket['recipient_name'],
-                    'eventName': ticket['event_name'],
-                    'ticketType': ticket['ticket_type_name'],
-                    'status': ticket['status'],
-                    'previousCheckIn': previous_checkin['check_in_time'].isoformat() if previous_checkin else None,
-                    'scannedBy': previous_checkin['scanner_name'] if previous_checkin else None
+                'error': f'Ticket is {ticket["status"]} and cannot be used'
+            }), 400
+        
+        # Check if already checked in
+        cur.execute('''
+            SELECT c.*, u.full_name as scanner_name
+            FROM check_ins c
+            JOIN users u ON c.scanner_id = u.id
+            WHERE c.ticket_id = %s
+        ''', (ticket['id'],))
+        
+        existing_checkin = cur.fetchone()
+        
+        if existing_checkin:
+            print("Ticket already checked in!")
+            return jsonify({
+                'success': False,
+                'error': 'This ticket has already been used',
+                'previous_checkin': {
+                    'ticket_number': ticket['ticket_number'],
+                    'recipient_name': ticket['recipient_name'],
+                    'check_in_time': existing_checkin['check_in_time'].isoformat(),
+                    'scanner_name': existing_checkin['scanner_name']
                 }
             }), 400
         
-        # Check if cancelled
-        if ticket['status'] == 'cancelled':
-            print("❌ Ticket cancelled")
-            return jsonify({
-                'success': False,
-                'error': 'Ticket has been cancelled',
-                'valid': False
-            }), 400
-        
-        # Mark as used
-        print("✅ Marking ticket as used...")
+        # Create check-in record
+        print("Creating check-in record...")
         cur.execute('''
-            UPDATE tickets
-            SET status = 'used'
+            INSERT INTO check_ins (ticket_id, scanner_id, check_in_time)
+            VALUES (%s, %s, NOW())
+            RETURNING check_in_time
+        ''', (ticket['id'], user_id))
+        
+        checkin = cur.fetchone()
+        
+        # Update ticket status to used
+        cur.execute('''
+            UPDATE tickets 
+            SET status = 'used' 
             WHERE id = %s
         ''', (ticket['id'],))
         
-        # Record check-in
-        cur.execute('''
-            INSERT INTO check_ins (ticket_id, scanner_id)
-            VALUES (%s, %s)
-        ''', (ticket['id'], user_id))
-        
-        # Commit transaction
         conn.commit()
-        print("✅ Check-in recorded")
-        
         cur.close()
+        
+        print("Check-in successful!")
+        print("="*60 + "\n")
         
         return jsonify({
             'success': True,
-            'valid': True,
-            'message': 'Ticket validated successfully',
-            'ticket': {
-                'ticketNumber': ticket['ticket_number'],
-                'recipientName': ticket['recipient_name'],
-                'recipientEmail': ticket['recipient_email'],
-                'eventName': ticket['event_name'],
-                'eventDate': ticket['event_date'].isoformat(),
-                'eventLocation': ticket['location'],
-                'ticketType': ticket['ticket_type_name'],
-                'checkInTime': datetime.now().isoformat()
+            'message': 'Check-in successful!',
+            'data': {
+                'ticket_number': ticket['ticket_number'],
+                'recipient_name': ticket['recipient_name'],
+                'event_name': ticket['event_name'],
+                'ticket_type': ticket['ticket_type'],
+                'check_in_time': checkin['check_in_time'].isoformat()
             }
         }), 200
         
     except Exception as e:
         conn.rollback()
-        print(f"❌ Validation error: {e}")
+        print(f"Validation error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -151,86 +147,25 @@ def validate_ticket():
     finally:
         release_db_connection(conn)
 
-@scanner_bp.route('/history', methods=['GET'])
-@scanner_required
-def get_scan_history():
-    """Get scanner's scan history"""
-    user_id = get_jwt_identity()
-    user_id = int(user_id)
-    
-    try:
-        history = execute_query('''
-            SELECT ci.*, t.ticket_number, t.recipient_name,
-                   e.name as event_name, tt.name as ticket_type_name
-            FROM check_ins ci
-            JOIN tickets t ON ci.ticket_id = t.id
-            JOIN events e ON t.event_id = e.id
-            JOIN ticket_types tt ON t.ticket_type_id = tt.id
-            WHERE ci.scanner_id = %s
-            ORDER BY ci.check_in_time DESC
-            LIMIT 50
-        ''', (user_id,))
-        
-        return jsonify({
-            'success': True,
-            'data': {'history': history or []}
-        }), 200
-        
-    except Exception as e:
-        print(f"❌ History error: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@scanner_bp.route('/stats', methods=['GET'])
-@scanner_required
-def get_scanner_stats():
-    """Get scanner statistics"""
-    user_id = get_jwt_identity()
-    user_id = int(user_id)
-    
-    try:
-        # Get total scans
-        total = execute_query(
-            'SELECT COUNT(*) as count FROM check_ins WHERE scanner_id = %s',
-            (user_id,)
-        )
-        
-        # Get today's scans
-        today = execute_query('''
-            SELECT COUNT(*) as count FROM check_ins
-            WHERE scanner_id = %s AND DATE(check_in_time) = CURRENT_DATE
-        ''', (user_id,))
-        
-        return jsonify({
-            'success': True,
-            'data': {
-                'totalScans': total[0]['count'] if total else 0,
-                'todayScans': today[0]['count'] if today else 0
-            }
-        }), 200
-        
-    except Exception as e:
-        print(f"❌ Stats error: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@scanner_bp.route('/lookup/<string:ticket_number>', methods=['GET'])
+@scanner_bp.route('/lookup/<ticket_number>', methods=['GET'])
 @scanner_required
 def lookup_ticket(ticket_number):
-    """Look up ticket by ticket number"""
+    """Lookup ticket by number for manual entry"""
+    print(f"\nLookup request for ticket: {ticket_number}")
+    
     try:
-        print(f"🔍 Looking up ticket: {ticket_number}")
-        
         ticket = execute_query('''
-            SELECT t.*, e.name as event_name
+            SELECT t.*, 
+                   e.name as event_name,
+                   tt.name as ticket_type
             FROM tickets t
             JOIN events e ON t.event_id = e.id
+            JOIN ticket_types tt ON t.ticket_type_id = tt.id
             WHERE t.ticket_number = %s
         ''', (ticket_number,))
         
         if not ticket:
-            return jsonify({
-                'success': False,
-                'error': 'Ticket not found'
-            }), 404
+            return jsonify({'success': False, 'error': 'Ticket not found'}), 404
         
         return jsonify({
             'success': True,
@@ -238,5 +173,45 @@ def lookup_ticket(ticket_number):
         }), 200
         
     except Exception as e:
-        print(f"❌ Lookup error: {e}")
+        print(f"Lookup error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@scanner_bp.route('/stats', methods=['GET'])
+@scanner_required
+def get_stats():
+    """Get scanner statistics"""
+    user_id = get_jwt_identity()
+    user_id = int(user_id)
+    
+    try:
+        # Total scans
+        total = execute_query('''
+            SELECT COUNT(*) as count 
+            FROM check_ins 
+            WHERE scanner_id = %s
+        ''', (user_id,))
+        
+        # Today's scans
+        today = execute_query('''
+            SELECT COUNT(*) as count 
+            FROM check_ins 
+            WHERE scanner_id = %s 
+            AND DATE(check_in_time) = CURRENT_DATE
+        ''', (user_id,))
+        
+        # Duplicate attempts (tickets that were already used)
+        # This is an approximation - we can't track failed scans easily
+        duplicates = 0
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'total': total[0]['count'] if total else 0,
+                'today': today[0]['count'] if today else 0,
+                'duplicates': duplicates
+            }
+        }), 200
+        
+    except Exception as e:
+        print(f"Stats error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
