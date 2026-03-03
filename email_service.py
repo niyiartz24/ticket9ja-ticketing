@@ -15,13 +15,16 @@ def send_ticket_email(
     qr_code_base64,
     ticket_bg_image=None
 ):
-    """Send ticket email using Resend API"""
+    """Send ticket email with downloadable ticket card"""
     
     api_key = os.getenv('RESEND_API_KEY')
-    from_email = os.getenv('EMAIL_FROM', 'Ticket9ja <onboarding@resend.dev>')
+    from_email = os.getenv('EMAIL_FROM')
     
-    if not api_key:
-        print("Resend API key not configured")
+    print(f"\nSending ticket to: {recipient_email}")
+    print(f"Ticket number: {ticket_number}")
+    
+    if not api_key or not from_email:
+        print("ERROR: Email not configured")
         return False
     
     try:
@@ -31,85 +34,127 @@ def send_ticket_email(
         else:
             qr_data = qr_code_base64
         
+        # Create downloadable ticket card HTML
         html_content = f"""
         <!DOCTYPE html>
         <html>
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                @media print {{
+                    body {{ margin: 0; }}
+                    .no-print {{ display: none; }}
+                }}
+            </style>
         </head>
-        <body style="margin: 0; padding: 0; background-color: #f5f5f5; font-family: Arial, sans-serif;">
-            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+        <body style="margin: 0; padding: 0; background-color: #f5f5f5; font-family: 'Arial', sans-serif;">
+            <div style="max-width: 650px; margin: 0 auto; padding: 20px;">
                 
-                <!-- Header -->
-                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; text-align: center; border-radius: 12px 12px 0 0;">
-                    <h1 style="color: white; margin: 0; font-size: 28px;">Your Ticket is Ready!</h1>
-                    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px;">{event_name}</p>
+                <!-- Email Header (not part of ticket) -->
+                <div class="no-print" style="text-align: center; padding: 20px 0;">
+                    <h2 style="color: #333; margin: 0;">Your Ticket is Ready!</h2>
+                    <p style="color: #666; margin: 10px 0;">Save this ticket or screenshot it for entry</p>
                 </div>
                 
-                <!-- Body -->
-                <div style="background: white; padding: 40px 30px; border-radius: 0 0 12px 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                <!-- TICKET CARD - This is what user saves/screenshots -->
+                <div id="ticket-card" style="background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.15); margin: 20px 0;">
                     
-                    <p style="color: #333; font-size: 16px; line-height: 1.6;">Hello <strong>{recipient_name}</strong>,</p>
-                    <p style="color: #555; font-size: 15px; line-height: 1.6;">Your ticket has been confirmed. Please find your QR code below and present it at the entrance.</p>
+                    <!-- Ticket Header with gradient -->
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; position: relative;">
+                        <div style="background: rgba(255,255,255,0.2); display: inline-block; padding: 8px 20px; border-radius: 20px; margin-bottom: 15px;">
+                            <span style="color: white; font-size: 13px; font-weight: bold; letter-spacing: 1px;">ADMIT ONE</span>
+                        </div>
+                        <h1 style="color: white; margin: 0; font-size: 32px; font-weight: bold;">{event_name}</h1>
+                        <p style="color: rgba(255,255,255,0.95); margin: 15px 0 0 0; font-size: 18px;">{event_date}</p>
+                        <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0 0; font-size: 16px;">📍 {event_location}</p>
+                    </div>
                     
-                    <!-- Ticket Card -->
-                    <div style="border: 2px solid #667eea; border-radius: 12px; padding: 30px; margin: 30px 0; text-align: center;">
-                        <h2 style="color: #667eea; margin: 0 0 20px 0; font-size: 22px;">{event_name}</h2>
+                    <!-- Ticket Body -->
+                    <div style="padding: 40px 30px;">
+                        
+                        <!-- Ticket Number Badge - PROMINENT -->
+                        <div style="text-align: center; margin-bottom: 30px;">
+                            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: inline-block; padding: 12px 30px; border-radius: 25px; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">
+                                <p style="color: rgba(255,255,255,0.8); margin: 0; font-size: 12px; letter-spacing: 2px;">TICKET NUMBER</p>
+                                <p style="color: white; margin: 5px 0 0 0; font-size: 24px; font-weight: bold; letter-spacing: 3px;">{ticket_number}</p>
+                            </div>
+                        </div>
                         
                         <!-- QR Code -->
-                        <img src="cid:qrcode" alt="Your Ticket QR Code" style="width: 250px; height: 250px; display: block; margin: 0 auto 25px auto;">
+                        <div style="text-align: center; margin: 30px 0; padding: 25px; background: #f9f9f9; border-radius: 15px;">
+                            <p style="color: #666; margin: 0 0 15px 0; font-size: 14px; font-weight: bold;">SCAN AT ENTRANCE</p>
+                            <img src="data:image/png;base64,{qr_data}" alt="QR Code" style="width: 280px; height: 280px; border: 4px solid white; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+                        </div>
                         
-                        <!-- Ticket Details -->
-                        <div style="text-align: left; background: #f9f9f9; padding: 20px; border-radius: 8px;">
+                        <!-- Ticket Details Grid -->
+                        <div style="margin: 30px 0; padding: 25px; background: #f9f9f9; border-radius: 15px;">
                             <table style="width: 100%; border-collapse: collapse;">
-                                <tr style="border-bottom: 1px solid #eee;">
-                                    <td style="padding: 10px 0; color: #888; font-size: 14px; width: 40%;">Ticket Number</td>
-                                    <td style="padding: 10px 0; color: #333; font-weight: bold; font-size: 14px;">{ticket_number}</td>
+                                <tr style="border-bottom: 2px solid #e0e0e0;">
+                                    <td style="padding: 15px 0; color: #888; font-size: 13px; text-transform: uppercase; letter-spacing: 1px;">Ticket Holder</td>
+                                    <td style="padding: 15px 0; color: #333; font-weight: bold; font-size: 16px; text-align: right;">{recipient_name}</td>
                                 </tr>
-                                <tr style="border-bottom: 1px solid #eee;">
-                                    <td style="padding: 10px 0; color: #888; font-size: 14px;">Ticket Type</td>
-                                    <td style="padding: 10px 0; color: #333; font-weight: bold; font-size: 14px;">{ticket_type}</td>
+                                <tr style="border-bottom: 2px solid #e0e0e0;">
+                                    <td style="padding: 15px 0; color: #888; font-size: 13px; text-transform: uppercase; letter-spacing: 1px;">Ticket Type</td>
+                                    <td style="padding: 15px 0; text-align: right;">
+                                        <span style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 6px 15px; border-radius: 20px; font-size: 14px; font-weight: bold;">{ticket_type}</span>
+                                    </td>
                                 </tr>
-                                <tr style="border-bottom: 1px solid #eee;">
-                                    <td style="padding: 10px 0; color: #888; font-size: 14px;">Date</td>
-                                    <td style="padding: 10px 0; color: #333; font-weight: bold; font-size: 14px;">{event_date}</td>
+                                <tr style="border-bottom: 2px solid #e0e0e0;">
+                                    <td style="padding: 15px 0; color: #888; font-size: 13px; text-transform: uppercase; letter-spacing: 1px;">Event Date</td>
+                                    <td style="padding: 15px 0; color: #333; font-weight: bold; font-size: 15px; text-align: right;">{event_date}</td>
                                 </tr>
                                 <tr>
-                                    <td style="padding: 10px 0; color: #888; font-size: 14px;">Location</td>
-                                    <td style="padding: 10px 0; color: #333; font-weight: bold; font-size: 14px;">{event_location}</td>
+                                    <td style="padding: 15px 0; color: #888; font-size: 13px; text-transform: uppercase; letter-spacing: 1px;">Venue</td>
+                                    <td style="padding: 15px 0; color: #333; font-weight: bold; font-size: 15px; text-align: right;">{event_location}</td>
                                 </tr>
                             </table>
                         </div>
+                        
+                        <!-- Instructions -->
+                        <div style="background: linear-gradient(to right, #e8f4fd, #fef3e8); padding: 20px; border-radius: 12px; border-left: 5px solid #667eea; margin: 25px 0;">
+                            <p style="margin: 0 0 12px 0; color: #333; font-weight: bold; font-size: 15px;">📱 How to Use Your Ticket:</p>
+                            <ol style="margin: 0; padding-left: 20px; color: #555; font-size: 14px; line-height: 1.8;">
+                                <li><strong>Save this email</strong> or take a screenshot of this ticket</li>
+                                <li><strong>Present the QR code</strong> at the venue entrance</li>
+                                <li><strong>Staff will scan</strong> your unique QR code for entry</li>
+                            </ol>
+                        </div>
+                        
+                        <!-- Important Notice -->
+                        <div style="background: #fff3e0; padding: 18px; border-radius: 12px; border-left: 5px solid #ff9800; margin: 20px 0;">
+                            <p style="margin: 0; color: #e65100; font-size: 14px; line-height: 1.6;">
+                                <strong>⚠️ Important:</strong> This ticket is valid for <strong>single entry only</strong>. Each ticket has a unique QR code and number. Do not share your QR code with others.
+                            </p>
+                        </div>
+                        
+                        <!-- Ticket Footer -->
+                        <div style="text-align: center; margin-top: 30px; padding-top: 25px; border-top: 2px dashed #e0e0e0;">
+                            <p style="color: #999; font-size: 12px; margin: 0;">Powered by Ticket9ja Event Management</p>
+                            <p style="color: #ccc; font-size: 11px; margin: 8px 0 0 0;">This is your official event ticket</p>
+                        </div>
+                        
                     </div>
                     
-                    <!-- Instructions -->
-                    <div style="background: #e8f4fd; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                        <p style="margin: 0 0 10px 0; color: #1a73e8; font-weight: bold; font-size: 15px;">How to use your ticket:</p>
-                        <ol style="margin: 0; padding-left: 20px; color: #555; font-size: 14px; line-height: 2;">
-                            <li>Save this email or screenshot the QR code</li>
-                            <li>Present the QR code at the venue entrance</li>
-                            <li>Staff will scan your code for entry</li>
-                        </ol>
-                    </div>
+                    <!-- Decorative Tear Line -->
+                    <div style="height: 2px; background: linear-gradient(to right, transparent, #e0e0e0, transparent);"></div>
                     
-                    <!-- Warning -->
-                    <div style="background: #fff3e0; padding: 15px 20px; border-radius: 8px; border-left: 4px solid #ff9800;">
-                        <p style="margin: 0; color: #e65100; font-size: 14px;"><strong>Important:</strong> This ticket is valid for single use only. Do not share your QR code.</p>
-                    </div>
-                    
-                    <!-- Footer -->
-                    <p style="margin-top: 30px; color: #999; font-size: 13px; text-align: center; line-height: 1.6;">
-                        This is an automated message from Ticket9ja.<br>
-                        Please do not reply to this email.
+                </div>
+                
+                <!-- Email Footer Instructions (not part of ticket) -->
+                <div class="no-print" style="text-align: center; padding: 30px 20px; color: #888;">
+                    <p style="font-size: 14px; margin: 0 0 10px 0;">💾 <strong>Save This Ticket:</strong> Screenshot or save this email</p>
+                    <p style="font-size: 13px; margin: 0; line-height: 1.6;">
+                        Each ticket has a unique number and QR code.<br>
+                        If you received multiple tickets, each will be in a separate email.
                     </p>
                 </div>
+                
             </div>
         </body>
         </html>
         """
         
-        # Resend API request
         url = "https://api.resend.com/emails"
         
         headers = {
@@ -120,35 +165,24 @@ def send_ticket_email(
         data = {
             "from": from_email,
             "to": [recipient_email],
-            "subject": f"Your Ticket for {event_name} - {ticket_number}",
-            "html": html_content,
-            "attachments": [
-                {
-                    "filename": "ticket-qrcode.png",
-                    "content": qr_data,
-                    "content_type": "image/png"
-                }
-            ]
+            "subject": f"🎫 Ticket {ticket_number} - {event_name}",
+            "html": html_content
         }
         
-        print(f"Sending email via Resend to {recipient_email}...")
+        print(f"Calling Resend API...")
+        response = requests.post(url, json=data, headers=headers, timeout=15)
         
-        response = requests.post(url, json=data, headers=headers, timeout=10)
+        print(f"Status: {response.status_code}")
         
-        print(f"Resend response: {response.status_code} - {response.text}")
-        
-        if response.status_code == 200 or response.status_code == 201:
-            print(f"Email sent successfully to {recipient_email}")
+        if response.status_code in [200, 201]:
+            print(f"SUCCESS: Ticket sent to {recipient_email}")
             return True
         else:
-            print(f"Resend API error: {response.status_code} - {response.text}")
+            print(f"FAILED: {response.status_code} - {response.text}")
             return False
         
-    except requests.exceptions.Timeout:
-        print("Resend API timeout")
-        return False
     except Exception as e:
-        print(f"Email error: {e}")
+        print(f"ERROR: {e}")
         import traceback
         traceback.print_exc()
         return False
