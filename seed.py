@@ -37,7 +37,7 @@ def seed_database():
             admin_id = admin[0]['id']
             print(f"   ✅ Admin created (ID: {admin_id})")
         else:
-            admin_result = execute_query('SELECT id FROM users WHERE email = %s', ('admin@synthaxlab.com',))
+            admin_result = execute_query('SELECT id FROM users WHERE email = %s', ('admin@ticket9ja.com',))
             admin_id = admin_result[0]['id'] if admin_result else None
             print("   ℹ️  Admin already exists")
     except Exception as e:
@@ -83,32 +83,31 @@ def seed_database():
                 event_id = event[0]['id']
                 print(f"   ✅ Event created (ID: {event_id})")
                 
-                # Create default ticket types for each event
-ticket_types_data = [
-    # Event 1 ticket types
-    ('Early bird', 50.00, 100, event1_id),
-    ('Late bird', 80.00, 50, event1_id),
-    ('VIP', 150.00, 30, event1_id),
-    ('Table for 4', 300.00, 10, event1_id),
-    ('Table for 8', 500.00, 5, event1_id),
-    
-    # Event 2 ticket types
-    ('Early bird', 40.00, 150, event2_id),
-    ('Late bird', 70.00, 75, event2_id),
-    ('VIP', 120.00, 40, event2_id),
-    ('Table for 4', 250.00, 15, event2_id),
-    ('Table for 8', 450.00, 8, event2_id),
-]
-
-print("Creating ticket types...")
-for name, price, quantity, event_id in ticket_types_data:
-    cur.execute('''
-        INSERT INTO ticket_types (event_id, name, price, quantity, quantity_issued)
-        VALUES (%s, %s, %s, %s, 0)
-    ''', (event_id, name, price, quantity))
-
-print("✅ Ticket types created")
-
+                # Create default ticket types for this event
+                print("🎫 Creating ticket types...")
+                ticket_types_data = [
+                    ('Early bird', 50.00, 100),
+                    ('Late bird', 80.00, 50),
+                    ('VIP', 150.00, 30),
+                    ('Table for 4', 300.00, 10),
+                    ('Table for 8', 500.00, 5),
+                ]
+                
+                for name, price, quantity in ticket_types_data:
+                    try:
+                        execute_query('''
+                            INSERT INTO ticket_types (event_id, name, price, quantity, quantity_issued, is_custom, description, color)
+                            VALUES (%s, %s, %s, %s, 0, false, %s, %s)
+                        ''', (event_id, name, price, quantity, f'{name} tickets', '#3B82F6'), fetch=False)
+                        print(f"   ✅ Created: {name}")
+                    except Exception as e:
+                        print(f"   ❌ Failed to create {name}: {e}")
+                
+                print(f"   ✅ All ticket types created for event {event_id}")
+            else:
+                print("   ❌ Failed to create event")
+        except Exception as e:
+            print(f"   ❌ Failed to create event: {e}")
     
     print("\n✨ Database seeded successfully!\n")
     print("=" * 60)
@@ -123,8 +122,6 @@ print("✅ Ticket types created")
     print("   🔒 Password: password123")
     print("=" * 60)
     print("\n🎉 Ready to use!")
-    print("   - Admin Dashboard: http://localhost:3000")
-    print("   - Scanner App:     http://localhost:3001")
     print("=" * 60 + "\n")
 
 if __name__ == '__main__':
@@ -134,7 +131,9 @@ if __name__ == '__main__':
     # Verify DATABASE_URL exists
     database_url = os.getenv('DATABASE_URL')
     if not database_url:
-        print("❌ DATABASE_URL not found in .env file!")
-        print("Make sure .env file exists in backend folder")
+        print("❌ DATABASE_URL not found in environment!")
+        print("Set DATABASE_URL environment variable first")
+        print("Example: export DATABASE_URL='postgres://...'")
     else:
+        print(f"✅ Using database: {database_url[:50]}...")
         seed_database()
