@@ -5,7 +5,7 @@ import os
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
-import bcrypt
+import bcrypt  # ← BACK TO BCRYPT
 from database.db import execute_query, init_db
 from datetime import datetime, timedelta
 
@@ -20,8 +20,8 @@ def seed_database():
         print(f"❌ Failed to initialize database: {e}")
         return
     
-    # Hash password
-    password_hash = bcrypt.hashpw('password123'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    # Hash password using bcrypt (matches auth.py)
+    password_hash = bcrypt.hashpw('password123'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')  # ← BCRYPT
     
     # Create admin user
     print("👤 Creating admin user...")
@@ -29,13 +29,13 @@ def seed_database():
         admin = execute_query('''
             INSERT INTO users (email, password_hash, full_name, role)
             VALUES (%s, %s, %s, %s)
-            ON CONFLICT (email) DO NOTHING
+            ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash
             RETURNING id
         ''', ('admin@ticket9ja.com', password_hash, 'Admin User', 'admin'))
         
         if admin:
             admin_id = admin[0]['id']
-            print(f"   ✅ Admin created (ID: {admin_id})")
+            print(f"   ✅ Admin created/updated (ID: {admin_id})")
         else:
             admin_result = execute_query('SELECT id FROM users WHERE email = %s', ('admin@ticket9ja.com',))
             admin_id = admin_result[0]['id'] if admin_result else None
@@ -50,12 +50,12 @@ def seed_database():
         scanner = execute_query('''
             INSERT INTO users (email, password_hash, full_name, role)
             VALUES (%s, %s, %s, %s)
-            ON CONFLICT (email) DO NOTHING
+            ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash
             RETURNING id
         ''', ('scanner@ticket9ja.com', password_hash, 'Scanner User', 'scanner'))
         
         if scanner:
-            print(f"   ✅ Scanner created")
+            print(f"   ✅ Scanner created/updated")
         else:
             print("   ℹ️  Scanner already exists")
     except Exception as e:
