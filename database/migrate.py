@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from database.db import get_db_connection, release_db_connection  # ← FIXED
+from db import get_db_connection, release_db_connection  # ← FIXED: Remove "database."
 
 load_dotenv()
 
@@ -99,10 +99,20 @@ def create_tables():
     except Exception as e:
         conn.rollback()
         print(f"❌ Migration failed: {e}")
+        import traceback
+        traceback.print_exc()
         raise e
         
     finally:
         release_db_connection(conn)
 
 if __name__ == '__main__':
+    # Print database URL for verification (first 50 chars only)
+    db_url = os.getenv('DATABASE_URL', '')
+    if db_url:
+        print(f"✅ Using database: {db_url[:50]}...")
+    else:
+        print("❌ DATABASE_URL not found in environment!")
+        exit(1)
+    
     create_tables()
